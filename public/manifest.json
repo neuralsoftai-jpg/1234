@@ -1,0 +1,24 @@
+{
+  "name": "Chatroom",
+  "short_name": "Chatroom",
+  "description": "Anonymous real-time chat — no signup required",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#2481cc",
+  "theme_color": "#2481cc",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
