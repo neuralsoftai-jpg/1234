@@ -177,3 +177,4 @@ Both support persistent Node.js servers (required — this app is not serverless
 - Message rate limit: 10 messages per 5 seconds per socket
 - Owner login: 5 attempts per 10 minutes per IP
 - Special-access reconnect uses `clientId` (UUID) not the password
+# 1234
