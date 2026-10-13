@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import socket from '../socket';
+import socket, { ensureSocketConnected } from '../socket';
 
 export default function SpecialAccess({ onBack, getClientId }) {
   const navigate = useNavigate();
@@ -10,14 +10,12 @@ export default function SpecialAccess({ onBack, getClientId }) {
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (!password.trim()) { setError('Please enter the access password.'); return; }
 
     setLoading(true);
     setError('');
-
-    socket.emit('special-join', { password: password.trim(), clientId });
 
     function onJoined({ roomId, peerOnline, name }) {
       cleanup();
@@ -41,6 +39,15 @@ export default function SpecialAccess({ onBack, getClientId }) {
 
     socket.once('joined', onJoined);
     socket.once('error', onError);
+
+    try {
+      await ensureSocketConnected();
+      socket.emit('special-join', { password: password.trim(), clientId });
+    } catch (_error) {
+      cleanup();
+      setLoading(false);
+      setError('Unable to connect to the chat server. Please try again.');
+    }
   }
 
   return (

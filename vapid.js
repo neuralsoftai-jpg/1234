@@ -6,7 +6,7 @@ import webpush from 'web-push';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VAPID_FILE = join(__dirname, '.vapid.json');
-const isVercel = process.env.VERCEL === '1';
+const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 let cachedKeys;
 
 function isValidKeys(keys) {
@@ -30,7 +30,7 @@ function loadKeys() {
     return { publicKey, privateKey };
   }
 
-  if (!isVercel && existsSync(VAPID_FILE)) {
+  if (!isProduction && existsSync(VAPID_FILE)) {
     try {
       const fileKeys = JSON.parse(readFileSync(VAPID_FILE, 'utf8'));
       if (isValidKeys(fileKeys)) return fileKeys;
@@ -40,8 +40,14 @@ function loadKeys() {
     }
   }
 
+  if (isProduction) {
+    throw new Error(
+      'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be configured in production.'
+    );
+  }
+
   const generatedKeys = webpush.generateVAPIDKeys();
-  if (!isVercel) {
+  if (!isProduction) {
     try {
       writeFileSync(VAPID_FILE, JSON.stringify(generatedKeys), { flag: 'wx' });
       console.log('[VAPID] Generated and persisted new keys in .vapid.json');
@@ -50,9 +56,6 @@ function loadKeys() {
         throw new Error(`Unable to persist generated VAPID keys: ${error.message}`);
       }
     }
-  } else {
-    console.warn('[VAPID] Generated in memory on Vercel. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY for stable subscriptions.');
-  }
   return generatedKeys;
 }
 

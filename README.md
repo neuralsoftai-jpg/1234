@@ -182,7 +182,7 @@ Both support persistent Node.js servers (required — this app is not serverless
 2. New Web Service → select repo
 3. Build command: `npm install && npm run build`
 4. Start command: `NODE_ENV=production node server.js`
-5. Add env vars: `SPECIAL_PASSWORD`, `OWNER_KEY`
+5. Add env vars: `SPECIAL_PASSWORD`, `OWNER_KEY`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`
 6. **Enable HTTPS** (Render does this automatically)
 
 ### Railway
@@ -194,7 +194,7 @@ Both support persistent Node.js servers (required — this app is not serverless
 ### Important Notes
 
 - You **must** use HTTPS in production for Web Push and service workers to work.
-- `.vapid.json` is generated on first run and persists between deploys if you use a persistent disk (Render Disk, Railway Volume). Without persistent storage, configure the VAPID environment variables so a new key is not generated on each deploy.
+- Production deployments must set the same stable `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` pair used by Vercel. VAPID keys are generated automatically only for local development.
 - All chat data is **in memory** — a server restart clears all rooms and messages.
 
 ---

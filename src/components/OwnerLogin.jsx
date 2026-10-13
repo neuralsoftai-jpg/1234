@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import socket from '../socket';
+import socket, { ensureSocketConnected } from '../socket';
 
 /**
  * OwnerLogin — hidden page at /owner.
@@ -14,7 +14,7 @@ export default function OwnerLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
     if (!key.trim()) { setError('Please enter your owner key.'); return; }
 
@@ -45,7 +45,6 @@ export default function OwnerLogin() {
       setError('Unable to connect to the chat server. Please try again.');
     }
 
-    socket.once('connect_error', onConnectionError);
     socket.once('owner-ready', onReady);
     socket.once('login-failed', onFailed);
     const timeout = setTimeout(() => {
@@ -53,7 +52,12 @@ export default function OwnerLogin() {
       setLoading(false);
       setError('Login timed out. Please try again.');
     }, 10000);
-    socket.emit('owner-login', { key: key.trim() });
+    try {
+      await ensureSocketConnected();
+      socket.emit('owner-login', { key: key.trim() });
+    } catch (_error) {
+      onConnectionError();
+    }
   }
 
   return (

@@ -27,6 +27,21 @@ const io = new Server(httpServer, {
 
 app.use(express.json());
 
+// The Vercel frontend calls this endpoint from a different origin.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Expose VAPID public key to the frontend
 app.get('/api/vapid-public-key', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
