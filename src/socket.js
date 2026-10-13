@@ -1,16 +1,14 @@
 import { io } from 'socket.io-client';
 
 const rawApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '');
-const backendUrl = rawApiUrl || undefined;
+// If VITE_API_URL is not set and running on Vercel, connect to the Hugging Face backend
+const defaultHfBackend = 'https://nural001-new.hf.space';
+const backendUrl = rawApiUrl || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? defaultHfBackend : undefined);
 
-if (!backendUrl && typeof window !== 'undefined') {
+if (!rawApiUrl && typeof window !== 'undefined') {
   const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
   if (!isLocal) {
-    console.warn(
-      '[Socket] Warning: VITE_API_URL environment variable is not set. ' +
-      'Connecting to current origin (' + window.location.origin + '). ' +
-      'If your backend is hosted on Render, Railway, or VPS, set VITE_API_URL in Vercel project settings.'
-    );
+    console.info('[Socket] Using backend target:', backendUrl);
   }
 }
 
