@@ -521,7 +521,7 @@ async def rename_visitor(sid, data):
     await broadcast_visitor_list()
 
 # Mount Socket.IO directly onto the FastAPI app
-fastapi_app.mount("/", socketio.ASGIApp(socketio_server=sio, other_asgi_app=fastapi_app))
+fastapi_app.mount("/socket.io", socketio.ASGIApp(socketio_server=sio))
 
 def get_status():
     return f"Chatroom WebSocket Backend is ONLINE 🟢 (Active rooms: {len(rooms)}, Owners: {len(owners)})"
@@ -531,5 +531,13 @@ with gr.Blocks(title="Chat Backend") as demo:
     gr.Markdown("Real-time Socket.IO server powering the Vercel frontend.")
     status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False, every=5)
 
-# Hugging Face Gradio SDK needs demo to be launched or app to be mounted
-app = gr.mount_gradio_app(fastapi_app, demo, path="/")
+# For Hugging Face Spaces: launch gradio and attach fastapi
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=7860, app=fastapi_app)
+else:
+    # When imported by Hugging Face runner
+    try:
+        app = gr.mount_gradio_app(fastapi_app, demo, path="/")
+    except Exception:
+        app = fastapi_app
+
