@@ -59,13 +59,8 @@ if not (vapid_public_key and vapid_private_key):
 
 print(f"[VAPID] Public key: {vapid_public_key[:15]}...")
 
-# ── Socket.IO Server Setup ─────────────────────────────────────────────────────
-sio = socketio.AsyncServer(
-    async_mode="asgi",
-    cors_allowed_origins="*",
-    max_http_buffer_size=64 * 1024,
-)
-fastapi_app = FastAPI()
+# ── FastAPI & Socket.IO Setup ──────────────────────────────────────────────────
+fastapi_app = FastAPI(title="Chatroom Backend")
 
 fastapi_app.add_middleware(
     CORSMiddleware,
@@ -73,6 +68,12 @@ fastapi_app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+sio = socketio.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins="*",
+    max_http_buffer_size=64 * 1024,
 )
 
 # ── In-Memory State ────────────────────────────────────────────────────────────
@@ -175,18 +176,31 @@ async def send_push(subs_list: list, payload: dict):
         if i < len(subs_list):
             subs_list.pop(i)
 
-# ── REST Endpoints ─────────────────────────────────────────────────────
+# ── REST Endpoints ─────────────────────────────────────────────────────────────
+@fastapi_app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "service": "Chatroom WebSocket Backend",
+        "gradio_ui": "/gradio",
+        "active_rooms": len(rooms),
+        "owners_online": len(owners)
+    }
+
+@fastapi_app.get("/api/health")
+async def health():
+    return {"status": "ok", "service": "chat-python-backend", "time": time.time()}
+
 @fastapi_app.get("/api/vapid-public-key")
 async def get_vapid_key():
     return Response(
         content=json.dumps({"publicKey": vapid_public_key}),
         media_type="application/json",
-        headers={"Cache-Control": "no-store"}
+        headers={
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+        }
     )
-
-@fastapi_app.get("/api/health")
-async def health():
-    return {"status": "ok", "service": "chat-python-backend", "time": time.time()}
 
 # ── Socket.IO Event Handlers ───────────────────────────────────────────────────
 @sio.event
@@ -520,16 +534,25 @@ async def rename_visitor(sid, data):
     visitor_names[client_id] = name
     await broadcast_visitor_list()
 
-# Mount Socket.IO directly onto the FastAPI app
-fastapi_app.mount("/socket.io", socketio.ASGIApp(socketio_server=sio))
-
-def get_status():
-    return f"Chatroom WebSocket Backend is ONLINE 🟢 (Active rooms: {len(rooms)}, Owners: {len(owners)})"
-
+# ── Mount Gradio & Wrap with Socket.IO ASGI ────────────────────────────────────
 with gr.Blocks(title="Chat Backend") as demo:
     gr.Markdown("# 🚀 Chatroom WebSocket Backend")
-    gr.Markdown("Real-time Socket.IO server powering the Vercel frontend.")
-    status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False)
+    gr.Markdown("Real-time Socket.IO server powering the Vercel frontend is **ONLINE 🟢**.")
+    gr.Textbox(value="Backend is Active and Listening 🟢", label="Status", interactive=False)
 
-# Mount Gradio into FastAPI for Hugging Face runner
-app = gr.mount_gradio_app(fastapi_app, demo, path="/")
+fastapi_app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio")
+
+# socket_app wraps FastAPI and handles Socket.IO traffic
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
+
+if __name__ == "__main__":
+    import uvicorn
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=PORT)
+    except OSError as e:
+        if "address already in use" in str(e).lower() or getattr(e, "errno", None) == 98:
+            print("[Server] Port busy, waiting 3s to retry...")
+            time.sleep(3)
+            uvicorn.run(app, host="0.0.0.0", port=PORT)
+        else:
+            raise
