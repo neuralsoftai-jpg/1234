@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 
 const rawApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '');
 // If VITE_API_URL is not set and running on Vercel, connect to the Hugging Face backend
-const defaultHfBackend = 'https://nural001-new.hf.space';
+const defaultHfBackend = 'https://nural001-chat-backend.hf.space';
 const backendUrl = rawApiUrl || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') ? defaultHfBackend : undefined);
 
 if (!rawApiUrl && typeof window !== 'undefined') {
