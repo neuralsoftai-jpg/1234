@@ -175,7 +175,7 @@ async def send_push(subs_list: list, payload: dict):
         if i < len(subs_list):
             subs_list.pop(i)
 
-# ── REST Endpoints ─────────────────────────────────────────────────────────────
+# ── REST Endpoints ─────────────────────────────────────────────────────
 @fastapi_app.get("/api/vapid-public-key")
 async def get_vapid_key():
     return Response(
@@ -529,15 +529,7 @@ def get_status():
 with gr.Blocks(title="Chat Backend") as demo:
     gr.Markdown("# 🚀 Chatroom WebSocket Backend")
     gr.Markdown("Real-time Socket.IO server powering the Vercel frontend.")
-    status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False, every=5)
+    status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False)
 
-# For Hugging Face Spaces: launch gradio and attach fastapi
-if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=7860, app=fastapi_app)
-else:
-    # When imported by Hugging Face runner
-    try:
-        app = gr.mount_gradio_app(fastapi_app, demo, path="/")
-    except Exception:
-        app = fastapi_app
-
+# Mount Gradio into FastAPI for Hugging Face runner
+app = gr.mount_gradio_app(fastapi_app, demo, path="/")
