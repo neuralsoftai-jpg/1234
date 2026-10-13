@@ -19,33 +19,54 @@ const vapidKeys = getVapidKeys();
 // ── Express + HTTP + Socket.io ─────────────────────────────────────────────────
 const app = express();
 const httpServer = createHttpServer(app);
+
+// Allow cross-origin requests from Vercel frontend or any configured domain
 const io = new Server(httpServer, {
-  cors: { origin: '*' },
+  cors: {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile, curl) and any cross-origin domain
+      callback(null, true);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+    credentials: true,
+  },
   // Allow up to 64 KB per message
   maxHttpBufferSize: 64 * 1024,
 });
 
 app.use(express.json());
 
-// The Vercel frontend calls this endpoint from a different origin.
+// Express CORS middleware: allow preflight OPTIONS and cross-origin calls
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-  }
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Accept, Content-Type');
     return res.sendStatus(204);
   }
   next();
 });
 
+// Health check endpoint for deployment status check
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', timestamp: Date.now() });
+});
+
 // Expose VAPID public key to the frontend
 app.get('/api/vapid-public-key', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ publicKey: vapidKeys.publicKey });
+  try {
+    const keys = getVapidKeys();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ publicKey: keys.publicKey });
+  } catch (err) {
+    console.error('[VAPID] Failed to get public key:', err);
+    res.status(503).json({ error: 'Push notifications unavailable.' });
+  }
 });
 
 // ── In-memory data model ───────────────────────────────────────────────────────
@@ -259,9 +280,10 @@ io.on('connection', (socket) => {
   socket.on('special-join', ({ password, clientId }) => {
     if (!password || !clientId) return socket.emit('error', 'Missing fields.');
 
-    const envPwd = process.env.SPECIAL_PASSWORD || '';
+    const envPwd = (process.env.SPECIAL_PASSWORD || '').trim().replace(/^["']|["']$/g, '');
     if (!envPwd) return socket.emit('error', 'Special access is not configured on this server.');
-    if (!safeEqual(password.trim(), envPwd.trim())) {
+    const inputPwd = String(password).trim().replace(/^["']|["']$/g, '');
+    if (!safeEqual(inputPwd, envPwd)) {
       return socket.emit('error', 'Incorrect password. Please try again.');
     }
 
@@ -351,10 +373,11 @@ io.on('connection', (socket) => {
       return socket.emit('login-failed', `Too many attempts. Try again in ${rateCheck.mins} minute(s).`);
     }
 
-    const ownerKey = process.env.OWNER_KEY || '';
+    const ownerKey = (process.env.OWNER_KEY || '').trim().replace(/^["']|["']$/g, '');
     if (!ownerKey) return socket.emit('login-failed', 'Owner key is not configured on this server.');
 
-    if (!safeEqual(String(key || '').trim(), ownerKey.trim())) {
+    const inputKey = String(key || '').trim().replace(/^["']|["']$/g, '');
+    if (!safeEqual(inputKey, ownerKey)) {
       recordLoginAttempt(ip, false);
       return socket.emit('login-failed', 'Incorrect owner key.');
     }

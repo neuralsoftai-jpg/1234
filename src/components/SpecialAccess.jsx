@@ -14,31 +14,57 @@ export default function SpecialAccess({ onBack, getClientId }) {
     e.preventDefault();
     if (!password.trim()) { setError('Please enter the access password.'); return; }
 
-    setLoading(true);
-    setError('');
+    let authTimer;
+
+    function cleanup() {
+      clearTimeout(authTimer);
+      socket.off('joined', onJoined);
+      socket.off('error', onError);
+      socket.off('connect_error', onConnectError);
+    }
 
     function onJoined({ roomId, peerOnline, name }) {
       cleanup();
-      // Save for reconnect — no password stored, use special-rejoin on next load
+      // Save for reconnect on refresh
       localStorage.setItem('chatroom_room', JSON.stringify({
         type: 'special', roomId, clientId, visitorName: name
       }));
-      navigate('/chat');
+      // Navigate with initial room info to skip redundant reconnect spinner
+      navigate('/chat', {
+        state: {
+          initialRoomInfo: {
+            type: 'special',
+            roomId,
+            clientId,
+            peerName: 'Owner',
+            visitorName: name,
+          },
+          initialPeerOnline: peerOnline,
+        },
+      });
     }
 
     function onError(msg) {
       cleanup();
-      setError(msg);
+      setError(msg || 'Authentication failed. Please try again.');
       setLoading(false);
     }
 
-    function cleanup() {
-      socket.off('joined', onJoined);
-      socket.off('error', onError);
+    function onConnectError(err) {
+      cleanup();
+      setError(err?.message || 'Unable to connect to the chat server. Please check connection.');
+      setLoading(false);
     }
 
     socket.once('joined', onJoined);
     socket.once('error', onError);
+    socket.once('connect_error', onConnectError);
+
+    authTimer = setTimeout(() => {
+      cleanup();
+      setLoading(false);
+      setError('Connection timed out. Please check your backend connection and try again.');
+    }, 12000);
 
     try {
       await ensureSocketConnected();
@@ -46,7 +72,7 @@ export default function SpecialAccess({ onBack, getClientId }) {
     } catch (_error) {
       cleanup();
       setLoading(false);
-      setError('Unable to connect to the chat server. Please try again.');
+      setError('Unable to connect to the chat server. Please verify your backend server is running.');
     }
   }
 

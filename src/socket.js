@@ -1,12 +1,23 @@
 import { io } from 'socket.io-client';
 
-const backendUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '') || undefined;
+const rawApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/$/, '');
+const backendUrl = rawApiUrl || undefined;
+
+if (!backendUrl && typeof window !== 'undefined') {
+  const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isLocal) {
+    console.warn(
+      '[Socket] Warning: VITE_API_URL environment variable is not set. ' +
+      'Connecting to current origin (' + window.location.origin + '). ' +
+      'If your backend is hosted on Render, Railway, or VPS, set VITE_API_URL in Vercel project settings.'
+    );
+  }
+}
 
 /**
  * Singleton socket.io-client instance.
  * Connects to the configured backend, or the same origin for local development.
- * Auto-reconnects indefinitely — the server keeps rooms alive so clients
- * can always reattach after a network hiccup.
+ * Uses websocket first with polling fallback for optimal cross-origin reliability.
  */
 const socket = io(backendUrl, {
   autoConnect: true,
@@ -15,9 +26,11 @@ const socket = io(backendUrl, {
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,
+  transports: ['websocket', 'polling'],
+  withCredentials: true,
 });
 
-export function ensureSocketConnected(timeoutMs = 10000) {
+export function ensureSocketConnected(timeoutMs = 12000) {
   if (socket.connected) return Promise.resolve();
 
   return new Promise((resolve, reject) => {
@@ -34,7 +47,7 @@ export function ensureSocketConnected(timeoutMs = 10000) {
     };
     const onError = (error) => {
       cleanup();
-      reject(error);
+      reject(new Error(error?.message || 'Unable to connect to the backend server.'));
     };
 
     socket.once('connect', onConnect);
@@ -43,7 +56,10 @@ export function ensureSocketConnected(timeoutMs = 10000) {
       cleanup();
       reject(new Error('Socket connection timed out.'));
     }, timeoutMs);
-    socket.connect();
+
+    if (!socket.connected) {
+      socket.connect();
+    }
   });
 }
 

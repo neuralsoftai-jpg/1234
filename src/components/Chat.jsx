@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import socket from '../socket';
 import MessageBubble from './MessageBubble';
 import TypingIndicator from './TypingIndicator';
@@ -30,16 +30,19 @@ function getAvatarColor(str) {
  */
 export default function Chat() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const initialState = location.state;
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages]     = useState([]);
   const [inputText, setInputText]   = useState('');
-  const [peerOnline, setPeerOnline] = useState(false);
+  const [peerOnline, setPeerOnline] = useState(initialState?.initialPeerOnline || false);
   const [peerTyping, setPeerTyping] = useState(false);
-  const [connected, setConnected]   = useState(false);
+  const [connected, setConnected]   = useState(Boolean(initialState?.initialRoomInfo));
   const [ended, setEnded]           = useState(false);
-  const [roomInfo, setRoomInfo]     = useState(null); // { type, code/roomId, clientId, peerName }
+  const [roomInfo, setRoomInfo]     = useState(initialState?.initialRoomInfo || null);
   const [peerDelivered, setPeerDelivered] = useState(false); // for double-check marks
+  const [reconnectError, setReconnectError] = useState('');
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const messagesEndRef    = useRef(null);
@@ -55,8 +58,12 @@ export default function Chat() {
 
   useEffect(() => { scrollToBottom(); }, [messages, peerTyping, scrollToBottom]);
 
-  // ── Socket reconnect on mount ───────────────────────────────────────────────
+  // ── Socket reconnect on mount (if not already connected via navigation) ───
   useEffect(() => {
+    if (initialState?.initialRoomInfo) {
+      return;
+    }
+
     const saved = localStorage.getItem('chatroom_room');
     if (!saved) { navigate('/'); return; }
 
@@ -64,8 +71,17 @@ export default function Chat() {
     try { info = JSON.parse(saved); } catch { navigate('/'); return; }
 
     const { type, code, roomId, clientId, visitorName } = info;
+    let reconnectTimer;
+
+    function cleanup() {
+      clearTimeout(reconnectTimer);
+      socket.off('joined', onJoined);
+      socket.off('session-expired', onSessionExpired);
+      socket.off('error', onError);
+    }
 
     function onJoined({ roomId: rid, peerOnline: po, name }) {
+      cleanup();
       setConnected(true);
       setPeerOnline(po);
       setRoomInfo({
@@ -78,12 +94,29 @@ export default function Chat() {
     }
 
     function onSessionExpired() {
+      cleanup();
       localStorage.removeItem('chatroom_room');
       navigate('/');
     }
 
+    function onError(err) {
+      console.warn('[Chat] Rejoin error:', err);
+      cleanup();
+      setReconnectError(typeof err === 'string' ? err : 'Chat session ended.');
+      localStorage.removeItem('chatroom_room');
+      setTimeout(() => navigate('/'), 2000);
+    }
+
     socket.once('joined', onJoined);
     socket.once('session-expired', onSessionExpired);
+    socket.once('error', onError);
+
+    reconnectTimer = setTimeout(() => {
+      cleanup();
+      setReconnectError('Connection timed out. Returning to home...');
+      localStorage.removeItem('chatroom_room');
+      setTimeout(() => navigate('/'), 2000);
+    }, 10000);
 
     // Emit the appropriate rejoin event
     if (type === 'normal') {
@@ -92,10 +125,7 @@ export default function Chat() {
       socket.emit('special-rejoin', { clientId });
     }
 
-    return () => {
-      socket.off('joined', onJoined);
-      socket.off('session-expired', onSessionExpired);
-    };
+    return cleanup;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Socket event listeners ──────────────────────────────────────────────────
@@ -222,9 +252,9 @@ export default function Chat() {
   // ── Render: loading state ───────────────────────────────────────────────────
   if (!connected && !ended) {
     return (
-      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100dvh', gap:16 }}>
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100dvh', gap:16, padding:24, textAlign:'center' }}>
         <div className="spinner" />
-        <p style={{ color:'var(--text-secondary)', fontSize:14 }}>Reconnecting…</p>
+        <p style={{ color:'var(--text-secondary)', fontSize:14 }}>{reconnectError || 'Reconnecting…'}</p>
       </div>
     );
   }

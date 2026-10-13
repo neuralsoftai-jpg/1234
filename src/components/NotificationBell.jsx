@@ -59,19 +59,37 @@ export default function NotificationBell({ clientId, isOwner = false }) {
         return;
       }
 
-      // Fetch VAPID public key from server
+      // Fetch VAPID public key from server (try backendUrl, fallback to relative endpoint)
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 8000);
       let res;
       try {
-        res = await fetch(`${backendUrl}/api/vapid-public-key`, {
-          signal: controller.signal,
-          headers: { Accept: 'application/json' },
-        });
+        const primaryUrl = backendUrl ? `${backendUrl}/api/vapid-public-key` : '/api/vapid-public-key';
+        try {
+          res = await fetch(primaryUrl, {
+            signal: controller.signal,
+            headers: { Accept: 'application/json' },
+          });
+          if (!res.ok && backendUrl) {
+            res = await fetch('/api/vapid-public-key', {
+              signal: controller.signal,
+              headers: { Accept: 'application/json' },
+            });
+          }
+        } catch (fetchErr) {
+          if (backendUrl) {
+            res = await fetch('/api/vapid-public-key', {
+              signal: controller.signal,
+              headers: { Accept: 'application/json' },
+            });
+          } else {
+            throw fetchErr;
+          }
+        }
       } finally {
         clearTimeout(timeout);
       }
-      if (!res.ok) throw new Error(`VAPID endpoint returned HTTP ${res.status}`);
+      if (!res || !res.ok) throw new Error(`VAPID endpoint returned HTTP ${res?.status || 'error'}`);
       const { publicKey } = await res.json();
       if (typeof publicKey !== 'string' || !publicKey) {
         throw new Error('VAPID public key is missing');

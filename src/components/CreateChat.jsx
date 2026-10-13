@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import socket from '../socket';
+import socket, { ensureSocketConnected } from '../socket';
 
 export default function CreateChat({ onBack, getClientId }) {
   const navigate = useNavigate();
@@ -12,10 +12,15 @@ export default function CreateChat({ onBack, getClientId }) {
   const [error, setError]       = useState('');
 
   useEffect(() => {
-    // Ask server to create a room
-    socket.emit('create', { clientId });
+    // Ask server to create a room once connected
+    ensureSocketConnected()
+      .then(() => socket.emit('create', { clientId }))
+      .catch((err) => setError('Unable to connect to chat server. Please try again.'));
+
+    let createdCode = '';
 
     function onCreated({ code: c }) {
+      createdCode = c;
       setCode(c);
       // Save to localStorage so Chat.jsx can reconnect
       localStorage.setItem('chatroom_room', JSON.stringify({
@@ -26,15 +31,34 @@ export default function CreateChat({ onBack, getClientId }) {
     function onJoined({ roomId, peerOnline }) {
       if (peerOnline) {
         setWaiting(false);
-        // Navigate to the chat screen — Chat.jsx will handle the room
-        navigate('/chat');
+        navigate('/chat', {
+          state: {
+            initialRoomInfo: {
+              type: 'normal',
+              roomId: roomId || createdCode,
+              clientId,
+              peerName: 'Friend',
+            },
+            initialPeerOnline: true,
+          },
+        });
       }
     }
 
     // Peer joined our room
     function onPeerOnline() {
       setWaiting(false);
-      navigate('/chat');
+      navigate('/chat', {
+        state: {
+          initialRoomInfo: {
+            type: 'normal',
+            roomId: createdCode,
+            clientId,
+            peerName: 'Friend',
+          },
+          initialPeerOnline: true,
+        },
+      });
     }
 
     function onError(msg) { setError(msg); }

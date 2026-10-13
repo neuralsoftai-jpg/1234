@@ -9,6 +9,11 @@ const VAPID_FILE = join(__dirname, '.vapid.json');
 const isProduction = process.env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 let cachedKeys;
 
+function cleanKey(val) {
+  if (typeof val !== 'string') return '';
+  return val.trim().replace(/^["']|["']$/g, '');
+}
+
 function isValidKeys(keys) {
   return Boolean(
     keys &&
@@ -20,50 +25,59 @@ function isValidKeys(keys) {
 }
 
 function loadKeys() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY?.trim();
-  const privateKey = process.env.VAPID_PRIVATE_KEY?.trim();
+  const publicKey = cleanKey(process.env.VAPID_PUBLIC_KEY);
+  const privateKey = cleanKey(process.env.VAPID_PRIVATE_KEY);
 
   if (publicKey || privateKey) {
     if (!publicKey || !privateKey) {
-      throw new Error('VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be configured together.');
+      throw new Error('VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must both be set when configured via environment.');
     }
     return { publicKey, privateKey };
   }
 
-  if (!isProduction && existsSync(VAPID_FILE)) {
+  // If environment variables are not set, check .vapid.json
+  if (existsSync(VAPID_FILE)) {
     try {
       const fileKeys = JSON.parse(readFileSync(VAPID_FILE, 'utf8'));
-      if (isValidKeys(fileKeys)) return fileKeys;
-      throw new Error('The .vapid.json file does not contain valid keys.');
+      if (isValidKeys(fileKeys)) {
+        return fileKeys;
+      }
+      console.warn('[VAPID] Existing .vapid.json has invalid format; regenerating keys.');
     } catch (error) {
-      throw new Error(`Unable to read VAPID keys: ${error.message}`);
+      console.warn(`[VAPID] Unable to read existing .vapid.json: ${error.message}`);
     }
+  }
+
+  // Automatic Key Generation
+  console.log('[VAPID] Generating new VAPID keys...');
+  const generatedKeys = webpush.generateVAPIDKeys();
+
+  // Try to persist keys to .vapid.json (may fail in read-only environments like Vercel)
+  try {
+    writeFileSync(VAPID_FILE, JSON.stringify(generatedKeys, null, 2));
+    console.log('[VAPID] Successfully generated and persisted new keys to .vapid.json');
+  } catch (error) {
+    console.warn(`[VAPID] Note: Unable to persist keys to .vapid.json (${error.message}). Using generated keys in memory.`);
   }
 
   if (isProduction) {
-    throw new Error(
-      'VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be configured in production.'
+    console.warn(
+      '[VAPID] Running in production with automatically generated keys.\n' +
+      '       To keep push subscriptions valid across server restarts, please configure:\n' +
+      `       VAPID_PUBLIC_KEY=${generatedKeys.publicKey}\n` +
+      `       VAPID_PRIVATE_KEY=${generatedKeys.privateKey}`
     );
   }
 
-  const generatedKeys = webpush.generateVAPIDKeys();
-  if (!isProduction) {
-    try {
-      writeFileSync(VAPID_FILE, JSON.stringify(generatedKeys), { flag: 'wx' });
-      console.log('[VAPID] Generated and persisted new keys in .vapid.json');
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw new Error(`Unable to persist generated VAPID keys: ${error.message}`);
-      }
-    }
   return generatedKeys;
 }
 
 export function getVapidKeys() {
   if (!cachedKeys) {
     cachedKeys = loadKeys();
+    const subject = process.env.VAPID_SUBJECT?.trim() || 'mailto:admin@chatroom.local';
     webpush.setVapidDetails(
-      'mailto:admin@chatroom.local',
+      subject,
       cachedKeys.publicKey,
       cachedKeys.privateKey
     );
@@ -74,3 +88,4 @@ export function getVapidKeys() {
 export function getVapidPublicKey() {
   return getVapidKeys().publicKey;
 }
+

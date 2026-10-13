@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import socket from '../socket';
+import socket, { ensureSocketConnected } from '../socket';
 
 export default function JoinChat({ onBack, getClientId }) {
   const navigate = useNavigate();
@@ -10,7 +10,7 @@ export default function JoinChat({ onBack, getClientId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
 
-  function handleJoin(e) {
+  async function handleJoin(e) {
     e.preventDefault();
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length !== 6) {
@@ -21,32 +21,58 @@ export default function JoinChat({ onBack, getClientId }) {
     setLoading(true);
     setError('');
 
-    // Save optimistically so Chat.jsx can reconnect if needed
-    localStorage.setItem('chatroom_room', JSON.stringify({
-      type: 'normal', code: trimmed, clientId
-    }));
-
-    socket.emit('join', { code: trimmed, clientId });
-
-    function onJoined({ roomId, peerOnline }) {
-      cleanup();
-      navigate('/chat');
-    }
-
-    function onError(msg) {
-      cleanup();
-      setError(msg);
-      setLoading(false);
-      localStorage.removeItem('chatroom_room');
-    }
+    let joinTimer;
 
     function cleanup() {
+      clearTimeout(joinTimer);
       socket.off('joined', onJoined);
       socket.off('error', onError);
     }
 
+    function onJoined({ roomId, peerOnline }) {
+      cleanup();
+      localStorage.setItem('chatroom_room', JSON.stringify({
+        type: 'normal', code: trimmed, clientId
+      }));
+      navigate('/chat', {
+        state: {
+          initialRoomInfo: {
+            type: 'normal',
+            roomId: roomId || trimmed,
+            clientId,
+            peerName: 'Friend',
+          },
+          initialPeerOnline: peerOnline,
+        },
+      });
+    }
+
+    function onError(msg) {
+      cleanup();
+      setError(msg || 'Failed to join room.');
+      setLoading(false);
+      localStorage.removeItem('chatroom_room');
+    }
+
     socket.once('joined', onJoined);
     socket.once('error', onError);
+
+    joinTimer = setTimeout(() => {
+      cleanup();
+      setError('Connection timed out. Please check your backend connection and try again.');
+      setLoading(false);
+      localStorage.removeItem('chatroom_room');
+    }, 12000);
+
+    try {
+      await ensureSocketConnected();
+      socket.emit('join', { code: trimmed, clientId });
+    } catch (_err) {
+      cleanup();
+      setError('Unable to connect to chat server. Please verify backend is running.');
+      setLoading(false);
+      localStorage.removeItem('chatroom_room');
+    }
   }
 
   return (
