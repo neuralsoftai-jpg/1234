@@ -11,6 +11,7 @@ import socketio
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pywebpush import webpush, WebPushException
+import gradio as gr
 
 load_dotenv()
 
@@ -39,7 +40,6 @@ if not (vapid_public_key and vapid_private_key):
     from cryptography.hazmat.primitives import serialization
     import base64
 
-    # Generate EC prime256v1 keys
     priv_key = ec.generate_private_key(ec.SECP256R1())
     raw_priv = priv_key.private_numbers().private_value.to_bytes(32, byteorder="big")
     vapid_private_key = base64.urlsafe_b64encode(raw_priv).decode("utf-8").rstrip("=")
@@ -75,10 +75,7 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
-app = socketio.ASGIApp(socketio_server=sio, other_asgi_app=fastapi_app)
-
 # ── In-Memory State ────────────────────────────────────────────────────────────
-# rooms: { roomId: { "type": "normal"|"special", "members": { clientId: { "socketIds": set(), "subs": [] } } } }
 rooms: Dict[str, dict] = {}
 owners: Set[str] = set()
 owner_subs: List[dict] = []
@@ -190,10 +187,6 @@ async def get_vapid_key():
 @fastapi_app.get("/api/health")
 async def health():
     return {"status": "ok", "service": "chat-python-backend", "time": time.time()}
-
-@fastapi_app.get("/")
-async def root():
-    return {"status": "running", "message": "Python WebSocket Chat Backend is active."}
 
 # ── Socket.IO Event Handlers ───────────────────────────────────────────────────
 @sio.event
@@ -527,20 +520,16 @@ async def rename_visitor(sid, data):
     visitor_names[client_id] = name
     await broadcast_visitor_list()
 
-# Mount a minimal Gradio UI so Hugging Face Gradio SDK stays running 24/7
-import gradio as gr
+# Mount Socket.IO directly onto the FastAPI app
+fastapi_app.mount("/", socketio.ASGIApp(socketio_server=sio, other_asgi_app=fastapi_app))
 
 def get_status():
-    return f"Chatroom WebSocket Backend is ONLINE 🟢 (Active rooms: {len(rooms)}, Owners connected: {len(owners)})"
+    return f"Chatroom WebSocket Backend is ONLINE 🟢 (Active rooms: {len(rooms)}, Owners: {len(owners)})"
 
-with gr.Blocks(title="Chat Backend Status") as demo:
+with gr.Blocks(title="Chat Backend") as demo:
     gr.Markdown("# 🚀 Chatroom WebSocket Backend")
     gr.Markdown("Real-time Socket.IO server powering the Vercel frontend.")
     status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False, every=5)
 
-app = gr.mount_gradio_app(fastapi_app, demo, path="/status")
-app = socketio.ASGIApp(socketio_server=sio, other_asgi_app=app)
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+# Hugging Face Gradio SDK needs demo to be launched or app to be mounted
+app = gr.mount_gradio_app(fastapi_app, demo, path="/")
