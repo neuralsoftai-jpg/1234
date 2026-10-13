@@ -72,7 +72,10 @@ NODE_ENV=production npm start
 
 > **Never commit `.env` or `.vapid.json`** — both are in `.gitignore`.
 
-VAPID keys are auto-generated into `.vapid.json` on first run and persisted across restarts.
+VAPID keys are auto-generated into `.vapid.json` on local runs and persisted across restarts.
+Vercel has an ephemeral, read-only filesystem, so configure `VAPID_PUBLIC_KEY` and
+`VAPID_PRIVATE_KEY` as Vercel environment variables. The private key is only read by
+the server and is never returned to the browser.
 
 ---
 
@@ -142,6 +145,33 @@ visitorNames: Map<clientId, string>
 
 ---
 
+## Deploy to Vercel
+
+Vercel serves the React application and rewrites `/owner` and `/owner/dash` to the
+SPA entry point, so direct navigation and refresh work. It also exposes the
+`/api/vapid-public-key` serverless endpoint with an 8-second client timeout.
+
+Set these environment variables in the Vercel project:
+
+```env
+SPECIAL_PASSWORD=...
+OWNER_KEY=...
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VITE_API_URL=https://your-websocket-backend.example.com
+```
+
+Generate a stable pair once with `npx web-push generate-vapid-keys`, then paste the
+two values into Vercel. Never commit `.env`, `.vapid.json`, or either private key.
+Set `VITE_API_URL` to the public URL of the Render/Railway Socket.IO backend so the
+Vercel frontend uses that server for owner authentication and chat events.
+
+**Important:** this application uses Socket.IO for real-time chat. Vercel serverless
+functions do not provide a persistent WebSocket server, so the Socket.IO backend
+must run on Render, Railway, or another WebSocket-capable host. Vercel can host the
+frontend, `/owner` route, and VAPID public-key endpoint, but owner login and chat
+events require that backend to be deployed separately.
+
 ## Deploy to Render / Railway
 
 Both support persistent Node.js servers (required — this app is not serverless-compatible).
@@ -164,7 +194,7 @@ Both support persistent Node.js servers (required — this app is not serverless
 ### Important Notes
 
 - You **must** use HTTPS in production for Web Push and service workers to work.
-- `VAPID.json` is generated on first run and persists between deploys if you use a persistent disk (Render Disk, Railway Volume). Without persistent storage, a new VAPID key is generated on each deploy — this invalidates existing push subscriptions.
+- `.vapid.json` is generated on first run and persists between deploys if you use a persistent disk (Render Disk, Railway Volume). Without persistent storage, configure the VAPID environment variables so a new key is not generated on each deploy.
 - All chat data is **in memory** — a server restart clears all rooms and messages.
 
 ---

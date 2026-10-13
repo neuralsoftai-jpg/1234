@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import socket from '../socket';
 
+const backendUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, '') || '';
+
 /**
  * NotificationBell — subscribes the browser to Web Push.
  * Works inside the header of any screen (Chat, OwnerDashboard, Home).
@@ -10,7 +12,7 @@ import socket from '../socket';
  *   isOwner   — pass true on the owner dashboard
  */
 export default function NotificationBell({ clientId, isOwner = false }) {
-  const [status, setStatus]   = useState('idle'); // 'idle' | 'subscribed' | 'denied' | 'unsupported'
+  const [status, setStatus]   = useState('idle'); // 'idle' | 'loading' | 'subscribed' | 'denied' | 'unsupported'
   const [ringing, setRinging] = useState(false);
   const [tip, setTip]         = useState('');
   const tipTimer              = useRef(null);
@@ -47,14 +49,33 @@ export default function NotificationBell({ clientId, isOwner = false }) {
       return;
     }
 
-    // Request permission
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') { setStatus('denied'); showTip('Permission denied'); return; }
+    setStatus('loading');
 
     try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setStatus('denied');
+        showTip('Permission denied');
+        return;
+      }
+
       // Fetch VAPID public key from server
-      const res = await fetch('/api/vapid-public-key');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      let res;
+      try {
+        res = await fetch(`${backendUrl}/api/vapid-public-key`, {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+      if (!res.ok) throw new Error(`VAPID endpoint returned HTTP ${res.status}`);
       const { publicKey } = await res.json();
+      if (typeof publicKey !== 'string' || !publicKey) {
+        throw new Error('VAPID public key is missing');
+      }
 
       const reg = await navigator.serviceWorker.ready;
       const subscription = await reg.pushManager.subscribe({
@@ -68,8 +89,9 @@ export default function NotificationBell({ clientId, isOwner = false }) {
       showTip('Notifications enabled ✓');
       ringBell();
     } catch (err) {
+      setStatus('idle');
       console.warn('[Push] Subscription failed:', err);
-      showTip('Failed to enable notifications');
+      showTip(err.name === 'AbortError' ? 'Request timed out — try again' : 'Failed to enable notifications');
     }
   }
 
@@ -91,6 +113,7 @@ export default function NotificationBell({ clientId, isOwner = false }) {
       <button
         className={`bell-btn ${subscribed ? 'subscribed' : ''}`}
         onClick={handleBellClick}
+        disabled={status === 'loading'}
         aria-label={subscribed ? 'Notifications on' : 'Enable notifications'}
         id="notification-bell-btn"
         title={subscribed ? 'Notifications on' : 'Enable notifications'}

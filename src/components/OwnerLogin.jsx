@@ -21,8 +21,6 @@ export default function OwnerLogin() {
     setLoading(true);
     setError('');
 
-    socket.emit('owner-login', { key: key.trim() });
-
     function onReady({ visitors }) {
       cleanup();
       navigate('/owner/dash', { state: { visitors } });
@@ -35,12 +33,27 @@ export default function OwnerLogin() {
     }
 
     function cleanup() {
+      clearTimeout(timeout);
       socket.off('owner-ready', onReady);
       socket.off('login-failed', onFailed);
+      socket.off('connect_error', onConnectionError);
     }
 
+    function onConnectionError() {
+      cleanup();
+      setLoading(false);
+      setError('Unable to connect to the chat server. Please try again.');
+    }
+
+    socket.once('connect_error', onConnectionError);
     socket.once('owner-ready', onReady);
     socket.once('login-failed', onFailed);
+    const timeout = setTimeout(() => {
+      cleanup();
+      setLoading(false);
+      setError('Login timed out. Please try again.');
+    }, 10000);
+    socket.emit('owner-login', { key: key.trim() });
   }
 
   return (

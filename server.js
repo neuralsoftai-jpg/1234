@@ -3,31 +3,18 @@ import express from 'express';
 import { createServer as createHttpServer } from 'http';
 import { Server } from 'socket.io';
 import webpush from 'web-push';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { timingSafeEqual } from 'crypto';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { getVapidKeys } from './vapid.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ── VAPID key management ───────────────────────────────────────────────────────
-// Keys are generated once and persisted to .vapid.json so subscriptions survive restarts.
-const VAPID_FILE = join(__dirname, '.vapid.json');
-let vapidKeys;
-if (existsSync(VAPID_FILE)) {
-  vapidKeys = JSON.parse(readFileSync(VAPID_FILE, 'utf8'));
-} else {
-  vapidKeys = webpush.generateVAPIDKeys();
-  writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys));
-  console.log('[VAPID] Generated new VAPID keys → .vapid.json');
-}
-webpush.setVapidDetails(
-  'mailto:admin@chatroom.local',
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
+// Prefer Vercel environment variables; local development persists keys in .vapid.json.
+const vapidKeys = getVapidKeys();
 
 // ── Express + HTTP + Socket.io ─────────────────────────────────────────────────
 const app = express();
@@ -42,6 +29,7 @@ app.use(express.json());
 
 // Expose VAPID public key to the frontend
 app.get('/api/vapid-public-key', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   res.json({ publicKey: vapidKeys.publicKey });
 });
 
@@ -525,7 +513,11 @@ io.on('connection', (socket) => {
 });
 
 // ── Start server ───────────────────────────────────────────────────────────────
-httpServer.listen(PORT, () => {
-  console.log(`\n🚀  Chatroom is running at http://localhost:${PORT}`);
-  if (!IS_PROD) console.log('   Mode: development (Vite middleware)\n');
-});
+export { app, httpServer };
+
+if (process.env.VERCEL !== '1') {
+  httpServer.listen(PORT, () => {
+    console.log(`\n🚀  Chatroom is running at http://localhost:${PORT}`);
+    if (!IS_PROD) console.log('   Mode: development (Vite middleware)\n');
+  });
+}
