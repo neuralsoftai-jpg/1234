@@ -527,6 +527,20 @@ async def rename_visitor(sid, data):
     visitor_names[client_id] = name
     await broadcast_visitor_list()
 
+# Mount a minimal Gradio UI so Hugging Face Gradio SDK stays running 24/7
+import gradio as gr
+
+def get_status():
+    return f"Chatroom WebSocket Backend is ONLINE 🟢 (Active rooms: {len(rooms)}, Owners connected: {len(owners)})"
+
+with gr.Blocks(title="Chat Backend Status") as demo:
+    gr.Markdown("# 🚀 Chatroom WebSocket Backend")
+    gr.Markdown("Real-time Socket.IO server powering the Vercel frontend.")
+    status_box = gr.Textbox(value=get_status, label="Server Status", interactive=False, every=5)
+
+app = gr.mount_gradio_app(fastapi_app, demo, path="/status")
+app = socketio.ASGIApp(socketio_server=sio, other_asgi_app=app)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=PORT, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=PORT)
